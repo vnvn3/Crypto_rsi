@@ -200,4 +200,4 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
   if (finalMessages.length > 0) {
     await sendTelegram(finalMessages.join("\n\n"));
   }
-}
+    }
