@@ -1,14 +1,27 @@
 // ===============================
-// bot.js — نسخه سازگار با import در Cloudflare Workers
+// Ultra-Pro Scalping Engine — Cloudflare Compatible
 // ===============================
 
 export async function runBot(env, BOT_TOKEN, CHAT_ID) {
 
-  const TIMEFRAME = "15m";
-  const LIMIT_PAIRS = 35;
-  const LIMIT_KLINES = 80;
-  const MIN_VOLUME = 50000;
-  const VWAP_THRESHOLD = 0.002;
+  // ===============================
+  // تنظیمات قابل تغییر
+  // ===============================
+  const SETTINGS = {
+    TIMEFRAME: "15m",
+    LIMIT_PAIRS: 30,
+    LIMIT_KLINES: 120,
+    MIN_VOLUME: 40000,
+    VWAP_THRESHOLD: 0.0025,
+    ATR_SPIKE_MULTIPLIER: 2.2,
+    SCORE_THRESHOLD: 6,     // سیگنال قوی
+    SCORE_STRONG: 8,        // ورود مطمئن
+    SCORE_GOLD: 10          // ورود طلایی
+  };
+
+  // ===============================
+  // توابع کمکی
+  // ===============================
 
   function avg(arr) {
     return arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -25,7 +38,7 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
   }
 
   async function getKlines(pair) {
-    const url = `https://www.okx.com/api/v5/market/candles?instId=${pair}&bar=${TIMEFRAME}&limit=${LIMIT_KLINES}`;
+    const url = `https://www.okx.com/api/v5/market/candles?instId=${pair}&bar=${SETTINGS.TIMEFRAME}&limit=${SETTINGS.LIMIT_KLINES}`;
     const res = await fetch(url);
     const data = await res.json();
     const rows = data.data.reverse();
@@ -80,23 +93,25 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
     return rsi;
   }
 
+  // ===============================
+  // سیگنال‌ها
+  // ===============================
+
   function detectDivergence(closes, volumes) {
     const rsi = calcRSI(closes);
 
     if (closes.at(-1) < closes.at(-3) &&
         rsi.at(-1) > rsi.at(-3) &&
         rsi.at(-1) < 35 &&
-        volumes.at(-1) > avg(volumes.slice(-20)) &&
-        closes.at(-1) > closes.at(-2)) {
-      return "دایورجنس مثبت تازه";
+        volumes.at(-1) > avg(volumes.slice(-20))) {
+      return { name: "دایورجنس مثبت", score: 3 };
     }
 
     if (closes.at(-1) > closes.at(-3) &&
         rsi.at(-1) < rsi.at(-3) &&
         rsi.at(-1) > 65 &&
-        volumes.at(-1) > avg(volumes.slice(-20)) &&
-        closes.at(-1) < closes.at(-2)) {
-      return "دایورجنس منفی تازه";
+        volumes.at(-1) > avg(volumes.slice(-20))) {
+      return { name: "دایورجنس منفی", score: 3 };
     }
 
     return null;
@@ -105,12 +120,14 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
   function detectBOS(highs, lows, closes) {
     const i = closes.length - 3;
 
-    if (highs[i] > highs[i - 1] && highs[i] > highs[i + 1]) {
-      if (closes.at(-1) > highs[i]) return "BOS صعودی";
+    if (highs[i] > highs[i - 1] && highs[i] > highs[i + 1] &&
+        closes.at(-1) > highs[i]) {
+      return { name: "BOS صعودی", score: 2 };
     }
 
-    if (lows[i] < lows[i - 1] && lows[i] < lows[i + 1]) {
-      if (closes.at(-1) < lows[i]) return "BOS نزولی";
+    if (lows[i] < lows[i - 1] && lows[i] < lows[i + 1] &&
+        closes.at(-1) < lows[i]) {
+      return { name: "BOS نزولی", score: 2 };
     }
 
     return null;
@@ -121,8 +138,29 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
     const trendDown = closes.at(-1) < closes.at(-5);
     const i = closes.length - 3;
 
-    if (trendDown && closes.at(-1) > highs[i]) return "CHoCH صعودی";
-    if (trendUp && closes.at(-1) < lows[i]) return "CHoCH نزولی";
+    if (trendDown && closes.at(-1) > highs[i]) {
+      return { name: "CHoCH صعودی", score: 2 };
+    }
+
+    if (trendUp && closes.at(-1) < lows[i]) {
+      return { name: "CHoCH نزولی", score: 2 };
+    }
+
+    return null;
+  }
+
+  function detectVWAP(closes, volumes) {
+    let sumPV = 0, sumV = 0;
+    for (let i = 0; i < closes.length; i++) {
+      sumPV += closes[i] * volumes[i];
+      sumV += volumes[i];
+    }
+    const vwap = sumPV / sumV;
+    const last = closes.at(-1);
+
+    if (Math.abs(last - vwap) / vwap < SETTINGS.VWAP_THRESHOLD) {
+      return { name: `نزدیک VWAP (${vwap.toFixed(4)})`, score: 1 };
+    }
 
     return null;
   }
@@ -131,22 +169,17 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
     const body = Math.abs(closes.at(-1) - opens.at(-1));
     const vol = volumes.at(-1);
 
-    if (body > atr * 2 && vol > avg(volumes.slice(-20)) * 2) {
-      return "اسپایک قوی";
+    if (body > atr * SETTINGS.ATR_SPIKE_MULTIPLIER &&
+        vol > avg(volumes.slice(-20)) * 2) {
+      return { name: "اسپایک حجم", score: 2 };
     }
 
     return null;
   }
 
-  function calcVWAP(closes, volumes) {
-    let sumPV = 0, sumV = 0;
-    for (let i = 0; i < closes.length; i++) {
-      sumPV += closes[i] * volumes[i];
-      sumV += volumes[i];
-    }
-    return sumPV / sumV;
-  }
-
+  // ===============================
+  // ارسال پیام تلگرام
+  // ===============================
   async function sendTelegram(msg) {
     const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
     await fetch(url, {
@@ -156,7 +189,11 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
     });
   }
 
-  const pairs = await getPairs(LIMIT_PAIRS);
+  // ===============================
+  // اجرای اصلی
+  // ===============================
+
+  const pairs = await getPairs(SETTINGS.LIMIT_PAIRS);
   let finalMessages = [];
 
   for (const pair of pairs) {
@@ -164,32 +201,36 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
       const data = await getKlines(pair);
       const { closes, volumes, highs, lows, opens } = data;
 
-      if (avg(volumes.slice(-10)) < MIN_VOLUME) continue;
+      if (avg(volumes.slice(-10)) < SETTINGS.MIN_VOLUME) continue;
 
       const atr = calcATR(highs, lows, closes);
-      const lastPrice = closes.at(-1);
 
       let signals = [];
+      let score = 0;
 
-      const div = detectDivergence(closes, volumes);
-      if (div) signals.push(div);
+      const s1 = detectDivergence(closes, volumes);
+      if (s1) { signals.push(s1.name); score += s1.score; }
 
-      const vwap = calcVWAP(closes, volumes);
-      if (Math.abs(lastPrice - vwap) / vwap < VWAP_THRESHOLD) {
-        signals.push(`قیمت نزدیک VWAP (${vwap.toFixed(4)})`);
-      }
+      const s2 = detectBOS(highs, lows, closes);
+      if (s2) { signals.push(s2.name); score += s2.score; }
 
-      const bos = detectBOS(highs, lows, closes);
-      if (bos) signals.push(bos);
+      const s3 = detectCHoCH(highs, lows, closes);
+      if (s3) { signals.push(s3.name); score += s3.score; }
 
-      const choch = detectCHoCH(highs, lows, closes);
-      if (choch) signals.push(choch);
+      const s4 = detectVWAP(closes, volumes);
+      if (s4) { signals.push(s4.name); score += s4.score; }
 
-      const spike = detectSpike(highs, lows, closes, opens, volumes, atr);
-      if (spike) signals.push(spike);
+      const s5 = detectSpike(highs, lows, closes, opens, volumes, atr);
+      if (s5) { signals.push(s5.name); score += s5.score; }
 
-      if (signals.length > 0) {
-        finalMessages.push(`${pair}\n${signals.join("\n")}`);
+      if (score >= SETTINGS.SCORE_THRESHOLD) {
+        let strength = "سیگنال قوی";
+        if (score >= SETTINGS.SCORE_STRONG) strength = "ورود مطمئن";
+        if (score >= SETTINGS.SCORE_GOLD) strength = "ورود طلایی";
+
+        finalMessages.push(
+          `${pair}\nامتیاز: ${score}\nقدرت: ${strength}\n${signals.join("\n")}`
+        );
       }
 
     } catch (e) {
@@ -200,4 +241,4 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
   if (finalMessages.length > 0) {
     await sendTelegram(finalMessages.join("\n\n"));
   }
-    }
+}
