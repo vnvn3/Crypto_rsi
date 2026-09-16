@@ -122,12 +122,12 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
 
     if (highs[i] > highs[i - 1] && highs[i] > highs[i + 1] &&
         closes.at(-1) > highs[i]) {
-      return { name: "🟢BOS صعودی", score: 2 };
+      return { name: "🟢.BOS صعودی", score: 2 };
     }
 
     if (lows[i] < lows[i - 1] && lows[i] < lows[i + 1] &&
         closes.at(-1) < lows[i]) {
-      return { name: "🔴BOS نزولی", score: 2 };
+      return { name: "🔴.BOS نزولی", score: 2 };
     }
 
     return null;
@@ -139,11 +139,11 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
     const i = closes.length - 3;
 
     if (trendDown && closes.at(-1) > highs[i]) {
-      return { name: "🟢CHoCH صعودی", score: 2 };
+      return { name: "🟢.CHoCH صعودی", score: 2 };
     }
 
     if (trendUp && closes.at(-1) < lows[i]) {
-      return { name: "🔴CHoCH نزولی", score: 2 };
+      return { name: "🔴.CHoCH نزولی", score: 2 };
     }
 
     return null;
@@ -159,7 +159,7 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
     const last = closes.at(-1);
 
     if (Math.abs(last - vwap) / vwap < SETTINGS.VWAP_THRESHOLD) {
-      return { name: `نزدیک VWAP (${vwap.toFixed(4)})`, score: 1 };
+      return { name: `نزدیک .VWAP (${vwap.toFixed(4)})`, score: 1 };
     }
 
     return null;
