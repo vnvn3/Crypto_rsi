@@ -9,7 +9,7 @@ export async function runBot(env, BOT_TOKEN, CHAT_ID) {
   // ===============================
   const SETTINGS = {
     TIMEFRAME: "15m",
-    LIMIT_PAIRS: 30,
+    LIMIT_PAIRS: 35,
     LIMIT_KLINES: 120,
     MIN_VOLUME: 40000,
     VWAP_THRESHOLD: 0.0025,
